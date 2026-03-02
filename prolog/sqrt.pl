@@ -15,3 +15,5 @@ sqrt(Target, CurrentEst, Tolerance, FinalAnswer) :-
     Error >= Tolerance,
     NewEst is (CurrentEst + Target/CurrentEst) / 2,
     sqrt(Target, NewEst, Tolerance, FinalAnswer).
+
+% run by using: ?- sqrt(10, X).
