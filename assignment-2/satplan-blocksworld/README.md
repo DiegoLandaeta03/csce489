@@ -1,5 +1,7 @@
 # SatPlan blocksworld (A and B)
 
+### TODO: Make a hashtable that prints what it corresponds to, so that it easier to see solution
+
 **Assignment task:** Use SatPlan to solve planning problems in Blocksworld (or another domain) by encoding as a Boolean formula and using Minisat to generate a model.
 
 My version is only blocksworld with A and B: I built the CNF in `satplan.py`, ran minisat, and read the plan off the satisfying assignment. Not a general planner.

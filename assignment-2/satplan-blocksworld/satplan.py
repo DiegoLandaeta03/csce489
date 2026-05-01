@@ -1,92 +1,149 @@
 #!/usr/bin/env python3
-# SatPlan for 2 blocks (A,B), horizon 2, goal On(A,B). Writes problem.cnf, optional minisat.
+# SatPlan for 3 blocks (A,B,C), horizon 4.
+# Initial: A on B, C alone. Goal: A alone, B on C.
 
 import os
 import subprocess
 import sys
 
-# --- problem is fixed: A and B, 3 time layers 0,1,2, one action at t=0 and t=1 ---
+BLOCKS = ["A", "B", "C"]
+HORIZON = 4  # states at 0..4, actions at 0..3
 
-HORIZON = 2  # states at 0,1,2
+F = []
+for b in BLOCKS:
+    F.append(f"OT_{b}")
+for x in BLOCKS:
+    for y in BLOCKS:
+        if x != y:
+            F.append(f"On{x}{y}")
+for b in BLOCKS:
+    F.append(f"Cl_{b}")
+for b in BLOCKS:
+    F.append(f"H_{b}")
+F.append("HE")
 
-# fluents in order (each gets a var per time step)
-F = [
-    "OT_A",
-    "OT_B",
-    "OnAB",
-    "OnBA",
-    "Cl_A",
-    "Cl_B",
-    "H_A",
-    "H_B",
-    "HE",
-]
 
-# action name -> (pre list, add list, del list)
-ACT = {
-    "PickupA": (["HE", "Cl_A", "OT_A"], ["H_A"], ["HE", "OT_A"]),
-    "PickupB": (["HE", "Cl_B", "OT_B"], ["H_B"], ["HE", "OT_B"]),
-    "PutdownA": (["H_A"], ["HE", "OT_A", "Cl_A"], ["H_A"]),
-    "PutdownB": (["H_B"], ["HE", "OT_B", "Cl_B"], ["H_B"]),
-    "StackAB": (["H_A", "Cl_B"], ["OnAB", "HE"], ["H_A", "Cl_B"]),
-    "StackBA": (["H_B", "Cl_A"], ["OnBA", "HE"], ["H_B", "Cl_A"]),
-    "UnstackAB": (["HE", "OnAB", "Cl_A"], ["H_A", "Cl_B"], ["HE", "OnAB"]),
-    "UnstackBA": (["HE", "OnBA", "Cl_B"], ["H_B", "Cl_A"], ["HE", "OnBA"]),
-}
+def on_name(x, y):
+    return f"On{x}{y}"
+
+
+ACT = {}
+for b in BLOCKS:
+    ACT[f"Pickup{b}"] = ([f"HE", f"Cl_{b}", f"OT_{b}"], [f"H_{b}"], [f"HE", f"OT_{b}"])
+    ACT[f"Putdown{b}"] = ([f"H_{b}"], [f"HE", f"OT_{b}", f"Cl_{b}"], [f"H_{b}"])
+
+for x in BLOCKS:
+    for y in BLOCKS:
+        if x == y:
+            continue
+        ACT[f"Stack{x}{y}"] = ([f"H_{x}", f"Cl_{y}"], [on_name(x, y), "HE"], [f"H_{x}", f"Cl_{y}"])
+        ACT[f"Unstack{x}{y}"] = (
+            ["HE", on_name(x, y), f"Cl_{x}"],
+            [f"H_{x}", f"Cl_{y}"],
+            ["HE", on_name(x, y)],
+        )
 
 ACT_NAMES = list(ACT.keys())
 nF = len(F)
 nA = len(ACT_NAMES)
 
+table = set()
 
 def S(t, name, neg=False):
-    # fluent literal at time t (DIMACS index 1..n)
+    # Fluent literal at time t (DIMACS index 1..n)
     v = t * nF + F.index(name) + 1
+    # tableEntry = "", t, name, neg, v
+    # if tableEntry not in table:
+    #     print(t, name, neg, v)   
+    # table.add(tableEntry)
     return -v if neg else v
-
 
 def Avar(t, name):
     base = (HORIZON + 1) * nF
+    entryAction = base + t * nA + ACT_NAMES.index(name) + 1
+    tableEntry = "", t, name, entryAction
+    if tableEntry not in table:
+        print(t, name, entryAction)   
+    table.add(tableEntry)
     return base + t * nA + ACT_NAMES.index(name) + 1
+
+
+def add_pairwise_at_most_one(clauses, lits):
+    for i in range(len(lits)):
+        for j in range(i + 1, len(lits)):
+            clauses.append([-lits[i], -lits[j]])
 
 
 def main():
     clauses = []
 
-    # initial state at t=0
-    for n in ["OT_A", "OT_B", "Cl_A", "Cl_B", "HE"]:
+    # Initial state at t=0:
+    # A on B, C by itself, hand empty.
+    init_true = ["OnAB", "OT_B", "OT_C", "Cl_A", "Cl_C", "HE"]
+    init_false = [
+        "OT_A",
+        "OnAC",
+        "OnBA",
+        "OnBC",
+        "OnCA",
+        "OnCB",
+        "Cl_B",
+        "H_A",
+        "H_B",
+        "H_C",
+    ]
+    for n in init_true:
         clauses.append([S(0, n)])
-    for n in ["OnAB", "OnBA", "H_A", "H_B"]:
+    for n in init_false:
         clauses.append([S(0, n, neg=True)])
 
-    # goal On(A,B) at t=2
-    clauses.append([S(HORIZON, "OnAB")])
+    # Goal at t=HORIZON:
+    # A by itself and B on C.
+    clauses.append([S(HORIZON, "OT_A")])
+    clauses.append([S(HORIZON, "Cl_A")])
+    clauses.append([S(HORIZON, "OnBC")])
 
-    # mutex / extra constraints at every time
+    # Mutex / structural constraints at every time.
     for t in range(HORIZON + 1):
-        clauses.append([S(t, "OT_A", True), S(t, "OnAB", True)])
-        clauses.append([S(t, "OT_B", True), S(t, "OnBA", True)])
-        clauses.append([S(t, "OnAB", True), S(t, "OnBA", True)])
-        clauses.append([S(t, "H_A", True), S(t, "OnAB", True)])
-        clauses.append([S(t, "H_B", True), S(t, "OnBA", True)])
-        clauses.append([S(t, "H_A", True), S(t, "OT_A", True)])
-        clauses.append([S(t, "H_B", True), S(t, "OT_B", True)])
-        clauses.append([S(t, "OnAB", True), S(t, "Cl_B", True)])
-        clauses.append([S(t, "OnBA", True), S(t, "Cl_A", True)])
-        clauses.append([S(t, "H_A", True), S(t, "H_B", True)])
-        # hand empty <-> not holding anything
-        clauses.append([S(t, "HE", True), S(t, "H_A", True)])
-        clauses.append([S(t, "HE", True), S(t, "H_B", True)])
-        clauses.append([S(t, "HE", False), S(t, "H_A", False), S(t, "H_B", False)])
+        # For each block X: at most one support among table / another block.
+        for x in BLOCKS:
+            supports = [S(t, f"OT_{x}")]
+            for y in BLOCKS:
+                if x != y:
+                    supports.append(S(t, on_name(x, y)))
+            add_pairwise_at_most_one(clauses, supports)
 
-    # transitions
+        # Nothing can be on two different blocks at once.
+        for y in BLOCKS:
+            on_y = [S(t, on_name(x, y)) for x in BLOCKS if x != y]
+            add_pairwise_at_most_one(clauses, on_y)
+
+        # If X is on Y, then Y is not clear.
+        for x in BLOCKS:
+            for y in BLOCKS:
+                if x != y:
+                    clauses.append([S(t, on_name(x, y), True), S(t, f"Cl_{y}", True)])
+
+        # If holding X, X is not on table or on another block.
+        for x in BLOCKS:
+            clauses.append([S(t, f"H_{x}", True), S(t, f"OT_{x}", True)])
+            for y in BLOCKS:
+                if x != y:
+                    clauses.append([S(t, f"H_{x}", True), S(t, on_name(x, y), True)])
+
+        # Hand-empty consistency and at most one held block.
+        held = [S(t, "H_A"), S(t, "H_B"), S(t, "H_C")]
+        add_pairwise_at_most_one(clauses, held)
+        clauses.append([S(t, "HE"), S(t, "H_A"), S(t, "H_B"), S(t, "H_C")])
+        for h in ["H_A", "H_B", "H_C"]:
+            clauses.append([S(t, "HE", True), S(t, h, True)])
+
+    # Transitions
     for t in range(HORIZON):
-        # exactly one action (also means we always do something at each step)
+        # Exactly one action at each step.
         acts = [Avar(t, n) for n in ACT_NAMES]
         clauses.append(acts)
-        for i in range(nA):
-            for j in range(i + 1, nA):
-                clauses.append([-acts[i], -acts[j]])
+        add_pairwise_at_most_one(clauses, acts)
 
         for aname in ACT_NAMES:
             pre, add, delete = ACT[aname]
@@ -103,7 +160,7 @@ def main():
             for x in delete:
                 clauses.append([-av, S(t + 1, x, True)])
 
-            # frame: fluents not in add or delete stay the same if this action runs
+            # Frame: unaffected fluents persist.
             for x in F:
                 if x in add or x in delete:
                     continue
@@ -115,7 +172,7 @@ def main():
     cnf_path = os.path.join(here, "problem.cnf")
 
     with open(cnf_path, "w", encoding="utf-8") as out:
-        out.write("c tiny blocksworld satplan A B horizon 2 goal On(A,B)\n")
+        out.write("c blocksworld satplan A,B,C horizon 4 goal: OT_A and OnBC\n")
         out.write("p cnf %d %d\n" % (nvars, len(clauses)))
         for c in clauses:
             out.write(" ".join(str(x) for x in c) + " 0\n")
@@ -144,9 +201,7 @@ def main():
             line = line.strip()
             if not line:
                 continue
-            if line == "SAT" or line.startswith("SAT "):
-                status = "SAT"
-            elif line.startswith("SATISFIABLE"):
+            if line == "SAT" or line.startswith("SAT ") or line.startswith("SATISFIABLE"):
                 status = "SAT"
             elif line.startswith("UNSAT"):
                 status = "UNSAT"
