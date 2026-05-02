@@ -1,0 +1,37 @@
+
+Selected preset: 1
+Description: A and B on table -> goal: on(A, B)
+
+**********************************************************************
+Search node 1
+Current goal: {('on', 'A', 'B')}
+**********************************************************************
+
+  Action: puton A B
+    Regressed goal: {('clear', 'B'), ('holding', 'A')}
+    Status: accepted (enqueue)
+Node summary: accepted=1, skipped_inconsistent=0, skipped_visited=0, skipped_resource_conflict=0, skipped_low_priority=0
+
+**********************************************************************
+Search node 2
+Current goal: {('clear', 'B'), ('holding', 'A')}
+**********************************************************************
+
+  Action: pickup A table
+    Regressed goal: {('clear', 'A'), ('clear', 'B'), ('hand-empty',), ('on', 'A', 'table')}
+    Status: accepted (enqueue)
+
+  Action: pickup A C
+    Regressed goal: {('clear', 'A'), ('clear', 'B'), ('hand-empty',), ('on', 'A', 'C')}
+    Status: accepted (enqueue)
+Node summary: accepted=2, skipped_inconsistent=4, skipped_visited=0, skipped_resource_conflict=0, skipped_low_priority=1
+
+**********************************************************************
+Search node 3
+Current goal: {('clear', 'A'), ('clear', 'B'), ('hand-empty',), ('on', 'A', 'table')}
+**********************************************************************
+Reached initial-state subset and plan is executable.
+
+--- Final Plan ---
+1. pickup A table
+2. puton A B

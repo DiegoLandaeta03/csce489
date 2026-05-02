@@ -1,0 +1,8 @@
+
+Selected preset: 3
+Description: Goal already satisfied: on(A, B)
+
+Goal is already satisfied in the initial state.
+
+--- Final Plan ---
+No actions needed.
